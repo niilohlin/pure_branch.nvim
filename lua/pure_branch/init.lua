@@ -34,7 +34,7 @@ local function pure_branch(callback)
         cwd = repo_path,
         stdout_buffered = true,
         on_stdout = function(_, data, _)
-          if data and not vim.tbl_isempty(data) then
+          if data and table.concat(data) ~= "" then
             branch_name = data[1]
             result = branch_name
           end
@@ -42,8 +42,7 @@ local function pure_branch(callback)
             cwd = repo_path,
             stdout_buffered = true,
             on_stdout = function(_, data, _)
-              print("data: " .. vim.inspect(data))
-              if data and not vim.tbl_isempty(data) then
+              if data and table.concat(data) ~= "" then
                 result = result .. "*"
               end
             end,
