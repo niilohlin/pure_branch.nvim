@@ -20,92 +20,64 @@ end
 
 --- Check the Git repository for updates asynchronously.
 --- @param callback function: Function to call with the result ("⇣", "⇡", or "").
-local function check_git_status(callback)
+local function pure_branch(callback)
   local repo_path = vim.fn.getcwd()
 
+  local branch_name = ""
   local result = ""
 
-  -- Function to check for pushes
-  local function check_push()
-    vim.fn.jobstart({ "git", "status", "--porcelain", "--branch" }, {
-      cwd = repo_path,
-      stdout_buffered = true,
-      on_stdout = function(_, data, _)
-        if data then
-          for _, line in ipairs(data) do
-            if line:match("ahead") then
-              result = result .. "⇡"
-              break
-            end
+  vim.fn.jobstart({ "git", "fetch" }, {
+    cwd = repo_path,
+    stdout_buffered = true,
+    on_stdout = function(_, data, _)
+      vim.fn.jobstart({ "git", "branch", "--show-current" }, {
+        cwd = repo_path,
+        stdout_buffered = true,
+        on_stdout = function(_, data, _)
+          if data and not vim.tbl_isempty(data) then
+            branch_name = data[1]
+            result = branch_name
           end
-        end
-      end,
-      on_exit = function()
-        callback(result)
-      end,
-    })
-  end
-
-  -- Job to check for pulls
-  vim.fn.jobstart({ "git", "fetch", "--dry-run" }, {
-    cwd = repo_path,
-    stdout_buffered = true,
-    on_stdout = function(_, data, _)
-      if data and table.concat(data) ~= table.concat({ "" }) then
-        result = result .. "⇣"
-      end
-    end,
-    on_exit = function()
-      check_push()
-    end,
+          vim.fn.jobstart({ "git", "status", "--porcelain" }, {
+            cwd = repo_path,
+            stdout_buffered = true,
+            on_stdout = function(_, data, _)
+              if data and not vim.tbl_isempty(data) then
+                result = result .. "*"
+              end
+            end,
+            on_exit = function()
+              vim.fn.jobstart({ "git", "status", "--porcelain", "--branch" }, {
+                cwd = repo_path,
+                stdout_buffered = true,
+                on_stdout = function(_, data, _)
+                  if data then
+                    for _, line in ipairs(data) do
+                      if line:match("ahead") then
+                        result = result .. "⇡"
+                      end
+                      if line:match("behind") then
+                        result = result .. "⇣"
+                      end
+                    end
+                  end
+                end,
+                on_exit = function()
+                  callback(result)
+                end,
+              })
+            end,
+          })
+        end,
+      })
+    end
   })
 end
-local cached_check_git_status = cache(check_git_status, 5000)
 
-
---- Check if the repository has uncommitted changes.
---- @param callback function: Function to call with the result ("*" or "").
-local function check_git_dirty(callback)
-  local repo_path = vim.fn.getcwd()
-
-  vim.fn.jobstart({ "git", "status", "--porcelain" }, {
-    cwd = repo_path,
-    stdout_buffered = true,
-    on_stdout = function(_, data, _)
-      if data and not vim.tbl_isempty(data) then
-        callback("*")
-      else
-        callback("")
-      end
-    end,
-    on_exit = function()
-    end,
-  })
-end
-local cached_check_git_dirty = cache(check_git_dirty, 5000)
-
-local function check_branch_name(callback)
-  local repo_path = vim.fn.getcwd()
-
-  vim.fn.jobstart({ "git", "branch", "--show-current" }, {
-    cwd = repo_path,
-    stdout_buffered = true,
-    on_stdout = function(_, data, _)
-      if data and not vim.tbl_isempty(data) then
-        callback(data[1])
-      else
-        callback("")
-      end
-    end,
-    on_exit = function()
-    end,
-  })
-end
-local cached_check_branch_name = cache(check_branch_name, 5000)
-
+local cached_pure_branch = cache(pure_branch, 5000)
 
 function M.pure_branch()
-  return cached_check_branch_name() .. cached_check_git_dirty() .. " " .. cached_check_git_status()
+  return cached_pure_branch()
 end
 
 return M
