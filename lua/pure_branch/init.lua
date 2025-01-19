@@ -42,6 +42,7 @@ local function pure_branch(callback)
             cwd = repo_path,
             stdout_buffered = true,
             on_stdout = function(_, data, _)
+              print("data: " .. vim.inspect(data))
               if data and not vim.tbl_isempty(data) then
                 result = result .. "*"
               end
