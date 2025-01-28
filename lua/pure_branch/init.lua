@@ -1,83 +1,51 @@
-local M = {}
 
-local function cache(func, time)
-  local cached_result = ""
-  local last_check_time = 0
+local result = ''
+local last_time_called = 0
 
-  return function()
-    local current_time = vim.loop.now()
-    if current_time - last_check_time < time then
-      return cached_result
-    end
-    func(function(new_result)
-      cached_result = new_result
-      last_check_time = vim.loop.now()
-    end)
-    return cached_result
+local function get_git_status()
+
+  if vim.loop.now() - last_time_called < 1000 then
+    return result
   end
-end
 
-
---- Check the Git repository for updates asynchronously.
---- @param callback function: Function to call with the result ("⇣", "⇡", or "").
-local function pure_branch(callback)
-  local repo_path = vim.fn.getcwd()
-
-  local branch_name = ""
-  local result = ""
-
-  vim.fn.jobstart({ "git", "fetch" }, {
-    cwd = repo_path,
+  -- Get the current branch name
+  vim.fn.jobstart({ 'git', 'rev-parse', '--abbrev-ref', 'HEAD' }, {
     stdout_buffered = true,
-    on_stdout = function(_, data, _)
-      vim.fn.jobstart({ "git", "branch", "--show-current" }, {
-        cwd = repo_path,
+    on_stdout = function(_, data)
+      if data then
+        result = data[1]
+      end
+      vim.fn.jobstart({ 'git', 'status', '--porcelain', '-u' }, {
         stdout_buffered = true,
-        on_stdout = function(_, data, _)
-          if data and table.concat(data) ~= "" then
-            branch_name = data[1]
-            result = branch_name
+        on_stdout = function(_, data)
+          if data and #data > 0 and not result:find("%*") then
+            result = result .. '*'
           end
-          vim.fn.jobstart({ "git", "status", "--porcelain" }, {
-            cwd = repo_path,
+          vim.fn.jobstart({ 'git', 'rev-list', '--left-right', '--count', 'HEAD...@{u}' }, {
             stdout_buffered = true,
-            on_stdout = function(_, data, _)
-              if data and table.concat(data) ~= "" then
-                result = result .. "*"
+            on_stdout = function(_, data)
+              if data and #data > 0 then
+                local ahead, behind = data[1]:match('^(%d+)%s+(%d+)$')
+                ahead = tonumber(ahead)
+                behind = tonumber(behind)
+
+                if ahead > 0 then
+                  result = result .. '⇡'
+                end
+                if behind > 0 then
+                  result = result .. '⇣'
+                end
               end
             end,
             on_exit = function()
-              vim.fn.jobstart({ "git", "status", "--porcelain", "--branch" }, {
-                cwd = repo_path,
-                stdout_buffered = true,
-                on_stdout = function(_, data, _)
-                  if data then
-                    for _, line in ipairs(data) do
-                      if line:match("ahead") then
-                        result = result .. "⇡"
-                      end
-                      if line:match("behind") then
-                        result = result .. "⇣"
-                      end
-                    end
-                  end
-                end,
-                on_exit = function()
-                  callback(result)
-                end,
-              })
+              last_time_called = vim.loop.now()
             end,
           })
         end,
       })
-    end
+    end,
   })
+  return result
 end
 
-local cached_pure_branch = cache(pure_branch, 5000)
-
-function M.pure_branch()
-  return cached_pure_branch()
-end
-
-return M
+return get_git_status
